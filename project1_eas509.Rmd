@@ -1,0 +1,737 @@
+---
+title: "EAS509: PROJECT 1"
+date: "2024-04-12"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Importing necessary Libraries 
+
+```{r}
+suppressWarnings({
+  library(readxl)       
+  library(ggplot2)     
+  library(caret)
+  library(nnet)
+  library(randomForest) 
+  library(rpart)
+  library(dplyr)
+  library(cluster)      
+  library(mclust)      
+  library(class)
+  library(reshape2)
+  library(e1071)
+  library(pROC)         
+  library(infotheo)
+  library(mclust)
+  library(dbscan)
+  library(factoextra)
+  library(rpart.plot)
+  library(gbm)
+})
+```
+
+# Dataset Loading
+
+```{r}
+Exasens <- read_excel("E:/UB/Sem 2/Statistics & Data Mining/Project1/Exasens.xlsx")
+head(Exasens)
+```
+
+# Exploratory Data Analysis (EDA)
+
+```{r}
+# Rename the columns
+cleaned_data <- Exasens[-c(1, 2), ]
+print(colnames(Exasens))
+Exasens_cleaned <- rename(cleaned_data,
+                          `Imaginary_Part_Min` = `Imaginary Part`,
+                          `Imaginary_Part_Avg` = `...4`,
+                          `Real_Part_Min` = `Real Part`,
+                          `Real_Part_Avg` = `...6`
+)
+Exasens_cleaned <- Exasens_cleaned[, 1:9]
+```
+
+
+```{r}
+# Dealing with missing values - for example, filling missing values with the 
+# median or mean
+Exasens_cleaned$Age <- ifelse(is.na(Exasens_cleaned$Age),
+median(Exasens_cleaned$Age, na.rm = TRUE), Exasens_cleaned$Age)
+cols_missing_vals <- c("Imaginary_Part_Min", "Imaginary_Part_Avg", 
+                       "Real_Part_Min", "Real_Part_Avg")
+```
+
+
+```{r}
+#convert cols to numeric
+Exasens_cleaned[, c("Imaginary_Part_Min", "Imaginary_Part_Avg", "Real_Part_Min", 
+                    "Real_Part_Avg")] <- 
+  lapply(Exasens_cleaned[, c("Imaginary_Part_Min", "Imaginary_Part_Avg", 
+                             "Real_Part_Min", "Real_Part_Avg")], as.numeric)
+```
+
+
+```{r}
+# Handle missing values in specified columns
+for (col in cols_missing_vals) {
+  Exasens_cleaned[[col]] <- ifelse(is.na(Exasens_cleaned[[col]]),
+                                      median(Exasens_cleaned[[col]], 
+                                             na.rm = TRUE),
+                                   Exasens_cleaned[[col]])
+}
+```
+
+```{r}
+# Checking if there are still any missing values
+sum(is.na(Exasens_cleaned))
+```
+
+```{r}
+summary(Exasens_cleaned)
+head(Exasens_cleaned)
+View(Exasens_cleaned)
+```
+
+```{r}
+# Class Distrbution Visualization
+class_distribution <- table(Exasens_cleaned$Diagnosis)
+class_distribution_df <- data.frame(Diagnosis = names(class_distribution), 
+                                    Frequency = as.numeric(class_distribution))
+
+ggplot(class_distribution_df, aes(x = Diagnosis, y = Frequency)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Class Distribution", x = "Diagnosis", y = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+'HC' has over 150 samples, indicating a higher prevalence, while 'Asthma', 'COPD', and 'Infected' each have around 80 samples, suggesting a more balanced distribution.
+
+
+```{r}
+# Pair plot to visualize the relationships between variables
+pairs(~Age + `Imaginary_Part_Min` + `Imaginary_Part_Avg` + `Real_Part_Min` 
+      + `Real_Part_Avg`, data = Exasens_cleaned, main = "Scatterplot Matrix")
+```
+
+
+```{r}
+# Analyzing categorical variables
+# Assuming 'Gender' as a categorical variable for illustration
+# Checking if 'Gender' exists in the dataset and assuming it's coded as 0 and 1
+if ("Gender" %in% names(Exasens_cleaned)) {
+  # Print the frequency table for Gender
+  print(table(Exasens_cleaned$Gender))
+  
+  # Convert Gender to a factor and specify labels
+  Exasens_cleaned$Gender <- factor(Exasens_cleaned$Gender, levels = c(0, 1), 
+                                   labels = c("Female", "Male"))
+
+  # Creating the bar plot with adjusted bar widths
+  ggplot(data = Exasens_cleaned, aes(x = Gender, fill = Gender)) +
+    geom_bar(width = 0.5) +  # Adjust this value to make bars thinner or thicker
+    geom_text(stat='count', aes(label=..count.., y=..count..), vjust=-0.5) +
+    labs(title = "Bar Plot of Gender", x = "Gender", y = "Count") +
+    theme_minimal() +
+    scale_fill_manual(values = c("Female" = "green", "Male" = "blue"),
+                      labels = c("0: Female", "1: Male"))
+}
+```
+
+The graph is a bar plot displaying the count of individuals by gender. The green bar represents females (coded as "0"), and the blue bar represents males (coded as "1"). According to the numbers on the bars, there are 240 females and 159 males in the dataset. The plot visually emphasizes that there are more females than males in this particular sample.
+
+
+```{r}
+# Histogram of 'Age'
+ggplot(Exasens_cleaned, aes(x = Age)) +
+    geom_histogram(bins = 20, fill = "blue", color = "black") +
+    labs(title = "Histogram of Age", x = "Age", y = "Frequency") +
+    theme_minimal()
+```
+
+The histogram shows the age distribution of individuals in a dataset, highlighting a multimodal pattern with prominent peaks at approximately 25, 50, and 70 years, indicating clusters of individuals around these ages. The frequency of individuals declines after 75, suggesting a smaller representation of older ages.
+
+
+```{r}
+# Box plot for comparing Age by Gender
+ggplot(Exasens_cleaned, aes(x = Gender, y = Age, fill = Gender)) +
+    geom_boxplot() +
+    labs(title = "Box Plot of Age by Gender", x = "Gender", y = "Age") +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Pastel1")
+```
+
+The box plot displays the age distribution for two gender groups, with both females and males having a median age around 50. Females show a slightly broader age distribution than males, indicating more variation in age among the female participants. No outliers are present for either group, and there is a general similarity in the age distributions between genders.
+
+
+# Dataset Splitting
+
+```{r}
+Exasens_cleaned$Diagnosis <- factor(Exasens_cleaned$Diagnosis)
+
+# Split the data into training and testing sets
+set.seed(1) 
+data_split <- createDataPartition(Exasens_cleaned$Diagnosis, p = 0.80, 
+                                  list = FALSE)
+training_data <- Exasens_cleaned[data_split, ]
+testing_data <- Exasens_cleaned[-data_split, ]
+
+# Make sure the Outcome is a factor and set levels explicitly if known
+all_levels <- unique(Exasens_cleaned$Diagnosis) 
+# This assumes all possible levels are in the full dataset
+training_data$Diagnosis <- factor(training_data$Diagnosis, levels = all_levels)
+testing_data$Diagnosis <- factor(testing_data$Diagnosis, levels = all_levels)
+```
+
+# Fitting various classification and Regression, Boosting Algorithms:
+
+# Logistic Regression
+
+```{r}
+# Fit the multinomial logistic regression model on training data
+multinom_model <- multinom(Diagnosis ~ `Imaginary_Part_Min` + 
+                             `Imaginary_Part_Avg` + `Real_Part_Min` + 
+                             `Real_Part_Avg` + Age + Gender + Smoking, 
+                           data = training_data)
+
+# Predicting on testing data
+predicted_outcomes <- predict(multinom_model, newdata = testing_data, 
+                              type="class")
+predicted_outcomes <- factor(predicted_outcomes, levels = all_levels)
+
+# Creating a confusion matrix
+conf_matrix <- confusionMatrix(data = predicted_outcomes, 
+                               reference = testing_data$Diagnosis)
+
+# Display the confusion matrix
+print(conf_matrix)
+
+# Extracting and printing the accuracy
+accuracy <- conf_matrix$overall['Accuracy']
+cat("Accuracy using Multinomial Logistic Regression:",
+    round(accuracy * 100, 2), "%")
+```
+## Findings
+
+The multinomial logistic regression model shows a moderate overall accuracy of 51.9%, indicating limited effectiveness in classification, with particularly weak performance in identifying Asthma and Infected cases. While it predicts Healthy Control (HC) cases with high sensitivity, it has low specificity, leading to many false positives in that category. The model's kappa statistic suggests only a fair agreement beyond chance. 
+
+
+# Random Forest
+
+```{r}
+# Train the random forest model
+set.seed(1) 
+rf_model <- randomForest(Diagnosis ~ ., data = training_data, 
+                         na.action = na.omit, ntree = 100)
+
+# Predicting on the test set
+predictions <- predict(rf_model, testing_data)
+
+# Calculating accuracy
+accuracy <- mean(predictions == testing_data$Diagnosis)
+
+# Display confusion matrix
+conf_matrix <- confusionMatrix(predictions, testing_data$Diagnosis)
+print(conf_matrix)
+cat("Accuracy using Random Forest:", round(accuracy * 100, 2), "%")
+```
+## Findings
+
+The random forest model applied to the dataset shows moderate overall accuracy in diagnosing conditions, with approximately 59.49 % accuracy, indicating it performs better than random chance. It is particularly effective in identifying COPD cases, with high sensitivity, but shows a high rate of false positives for Healthy Controls (HC). The model completely misses Asthma cases and has a very low sensitivity for the Infected class. Despite this, the kappa statistic suggests a fair level of agreement beyond chance in the predictions. The model's performance varies significantly across different conditions, indicating potential issues such as class imbalance or the need for better feature selection and model tuning. Overall, while the model has predictive value, especially for COPD, its diagnostic capabilities are inconsistent across different conditions, and there is substantial scope for improvement.
+
+
+# Decision Tree
+
+```{r}
+# Build the decision tree model
+tree_model <- rpart(Diagnosis ~ `Imaginary_Part_Min` + `Imaginary_Part_Avg` + 
+                      `Real_Part_Min` + `Real_Part_Avg` + Age + Gender + 
+                      Smoking, data = training_data, method = "class")
+
+# Make predictions on the test dataset
+predictions <- predict(tree_model, testing_data, type = "class")
+
+# Calculate the accuracy of the model
+accuracy <- sum(predictions == testing_data$Diagnosis) / nrow(testing_data)
+
+rpart.plot(tree_model)
+
+# Print a summary of the tree model
+print(summary(tree_model))
+
+cat("Accuracy of the model:", round(accuracy * 100, 2), "%")
+```
+## Findings
+
+The decision tree output indicates that age is the primary factor in classifying individuals' health status, particularly distinguishing healthy controls in older age groups. Smoking status is a significant predictor for COPD, especially among heavy smokers. The model also uses age and gender to make further distinctions, notably associating middle-aged males with COPD. A specific measure, Real_Part_Avg, is used to differentiate between healthy and infected individuals, with lower values pointing to infection. With an overall accuracy of 56.96%, the model shows potential in predicting health conditions.
+
+
+# K-means Clustering
+
+```{r}
+# Define 'numeric_cols' just after renaming the columns to ensure it is 
+# defined before usage
+numeric_cols <- c("Imaginary_Part_Min", "Imaginary_Part_Avg", "Real_Part_Min", 
+                  "Real_Part_Avg", "Age")
+
+# Apply K-means clustering
+set.seed(123)  
+kmeans_result <- kmeans(Exasens_cleaned[cols_missing_vals], centers=4, 
+                        nstart=20)
+Exasens_cleaned$KmeansCluster <- kmeans_result$cluster
+
+# Function to convert cluster labels to most common true labels in each cluster
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+convert_clusters_to_labels <- function(data, true_label, cluster_label) {
+  label_mapping <- data %>%
+    group_by(!!sym(cluster_label)) %>%
+    summarise(TrueLabel = Mode(!!sym(true_label)), .groups = 'drop') %>%
+    pull(TrueLabel)
+
+  converted_labels <- label_mapping[data[[cluster_label]]]
+  return(converted_labels)
+}
+
+# Convert cluster numbers to actual labels
+Exasens_cleaned$MappedClusterLabels <- 
+  convert_clusters_to_labels(Exasens_cleaned, "Diagnosis", "KmeansCluster")
+
+# Calculate confusion matrix
+conf_matrix <- confusionMatrix(as.factor(Exasens_cleaned$MappedClusterLabels), 
+                               as.factor(Exasens_cleaned$Diagnosis))
+
+# Print the confusion matrix and accuracy
+print(conf_matrix)
+cat("Accuracy of K-means:", conf_matrix$overall['Accuracy'], "\n")
+```
+## Findings
+
+The confusion matrix from the K-means clustering output indicates that almost all cases are being assigned to one cluster, specifically the 'HC' (Healthy Control) cluster. This suggests that the K-means algorithm is unable to distinguish effectively between the different classes in the dataset. The high sensitivity for the HC class indicates that almost all HC instances are correctly identified, but the sensitivity for other conditions like Asthma and Infected is zero, meaning the algorithm failed to identify any cases of these conditions. The accuracy of 0.4035 is only slightly better than the No Information Rate, and the very low Kappa value reinforces the lack of class discrimination by the clustering.
+
+
+# Hierarchical Clustering
+
+```{r}
+# Apply Hierarchical Clustering
+# Create the distance matrix
+dist_mat <- dist(Exasens_cleaned[, cols_missing_vals])  
+hc <- hclust(dist_mat, method = "ward.D2")  # Perform the clustering
+
+# Cutting the dendrogram at the desired number of clusters
+k <- 6
+clusters <- cutree(hc, k)
+
+# Assuming that you have a 'Diagnosis' column for true labels
+# If 'Diagnosis' needs to be factored or if it's not in the first 9 columns,
+# you should adjust the code accordingly
+Exasens_cleaned$Cluster <- clusters
+Exasens_cleaned$Diagnosis <- factor(Exasens_cleaned$Diagnosis)
+
+# Calculate Adjusted Rand Index (ARI) and Normalized Mutual Information (NMI)
+ari <- adjustedRandIndex(Exasens_cleaned$Diagnosis, Exasens_cleaned$Cluster)
+#mi_hc <- mutualInformation(Exasens_cleaned$Diagnosis, Exasens_cleaned$Cluster)
+mi_hc <- entropy(cbind(Exasens_cleaned$Diagnosis, Exasens_cleaned$Cluster))
+
+# Print the evaluation metrics
+cat("Adjusted Rand Index:", ari,"\n")
+cat("Mutual Information for Hierarchical Clustering:", mi_hc, "\n")
+```
+## Findings
+
+The negative Adjusted Rand Index (ARI) implies that the hierarchical clustering does not correspond well with the true class labels, performing no better than a random assignment. The Mutual Information (MI) score is moderately high, indicating some mutual dependence between the clusters and the true labels, but without normalization, it may not accurately reflect the quality of the clustering. These contrasting metrics suggest that the clustering structure may not align with the expected outcomes and needs refinement.
+
+```{r}
+# Visualize the dendrogram with clusters
+plot(hc, labels = FALSE, main = "Hierarchical Clustering Dendrogram")
+rect.hclust(hc, k = k, border = "red")
+```
+## Findings
+
+The dendrogram indicates a significant division between two main groups, with one much larger than the other, suggesting potential imbalances in the data characteristics. The selection of four clusters, marked by red boxes, does not seem to capture the natural grouping well, as there is a notable disparity in cluster sizes. This implies that the optimal number of clusters might differ from four, warranting further analysis to determine a more fitting cluster count that reflects the data's inherent structure.
+
+
+# k-Nearest Neighbors
+
+```{r}
+library(caret)  # For model training and tuning
+library(class)  # For kNN
+library(tibble)  
+
+set.seed(1) 
+
+# Ensure Diagnosis is a factor
+Exasens_cleaned$Diagnosis <- as.factor(Exasens_cleaned$Diagnosis)
+
+# Convert tibbles to data frames to avoid row name issues
+Exasens_cleaned <- as.data.frame(Exasens_cleaned)
+
+# Create indices for the split
+data_split <- createDataPartition(Exasens_cleaned$Diagnosis, p = 0.80, 
+                                  list = FALSE)
+training_data <- as.data.frame(Exasens_cleaned[data_split, ])
+testing_data <- as.data.frame(Exasens_cleaned[-data_split, ])
+
+training_predictors <- 
+  training_data[, -which(names(training_data) %in% c("ID"))]
+training_predictors <- 
+  training_predictors[, sapply(training_predictors, is.numeric)]
+testing_predictors <- 
+  testing_data[, -which(names(testing_data) %in% c("ID"))]
+testing_predictors <- 
+  testing_predictors[, sapply(testing_predictors, is.numeric)]
+
+# Tune the kNN model to find the optimal number of neighbors k
+tuneGrid <- expand.grid(k = 1:20)  # Grid of k values from 1 to 20
+control <- trainControl(method = "cv", number = 10)  # 10-fold cross-validation
+knnTune <- train(training_predictors, training_data$Diagnosis, method = "knn",
+                 trControl = control, tuneGrid = tuneGrid)
+best_k <- knnTune$bestTune$k
+print(knnTune)
+
+# Train kNN model using the best k found
+knn_model <- knn(train = training_predictors, 
+                 test = testing_predictors, 
+                 cl = training_data$Diagnosis, 
+                 k = best_k)
+
+# Make predictions using the best k
+predictions_knn <- factor(knn_model, levels = levels(training_data$Diagnosis))
+
+# Calculate accuracy
+accuracy_knn <- mean(predictions_knn == testing_data$Diagnosis)
+
+# Print confusion matrix
+conf_matrix_knn <- confusionMatrix(predictions_knn, testing_data$Diagnosis)
+print(conf_matrix_knn)
+
+# Output accuracy
+cat("Accuracy using k-Nearest Neighbors with optimal k:", 
+    round(accuracy_knn * 100, 2), "%\n")
+
+```
+
+
+```{r}
+# Load necessary libraries
+library(reshape2)
+library(ggplot2)
+library(caret)
+
+# Generate the confusion matrix
+confusion_mtx <- confusionMatrix(predictions_knn, testing_data$Diagnosis)
+
+# Extract the table from the confusion matrix
+conf_matrix <- confusion_mtx$table
+
+# Melt the confusion matrix into a long format suitable for ggplot
+conf_matrix_long <- melt(conf_matrix, varnames = c("Prediction", "Reference"))
+
+# Plot the confusion matrix using ggplot
+conf_matrix_plot <- ggplot(data = conf_matrix_long, aes(x = Prediction, 
+                                                        y = Reference, 
+                                                        fill = value)) +
+  geom_tile(color = "white") + 
+  geom_text(aes(label = value), vjust = 1.5, color = "black", size = 5) +
+  scale_fill_gradient(low = "#D0E1F9", high = "#005073") +  
+  labs(title = "Confusion Matrix for k-Nearest Neighbors", 
+       x = "Predicted Label", y = "True Label") +
+  theme_minimal() +  # Use a minimal theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(conf_matrix_plot)
+```
+
+```{r}
+
+library(pROC)  
+roc_response <- as.numeric(testing_data$Diagnosis) - 1  
+roc_predictor <- as.numeric(predictions_knn) - 1
+
+# Compute the ROC curve
+roc_curve <- roc(response = roc_response, predictor = roc_predictor)
+
+# Plot ROC curve
+roc_curve_plot <- ggplot(data = data.frame(tpr = roc_curve$sensitivities,
+                                           fpr = roc_curve$specificities),
+                         aes(x = 1 - fpr, y = tpr)) +
+  geom_line(color = "blue") +
+  geom_abline(linetype = "dashed") +
+  labs(title = "ROC Curve for k-Nearest Neighbors Model",
+       x = "1 - Specificity (False Positive Rate)",
+       y = "Sensitivity (True Positive Rate)") +
+  theme_minimal()
+
+# Print the plot
+print(roc_curve_plot)
+
+```
+
+```{r}
+
+# Plotting the performance of the KNN model across different values of 'k'
+performance_plot <- ggplot(knnTune$results, aes(x = k, y = Accuracy)) +
+  geom_line() +
+  geom_point(shape = 21, fill = "red") +
+  labs(title = "KNN Performance Over Different k", x = "Number of Neighbors (k)", y = "Accuracy") +
+  theme_minimal()
+
+# Display the performance plot
+print(performance_plot)
+
+```
+
+## Findings
+
+The k-Nearest Neighbors model shows an accuracy of 53.16%, modestly outperforming the no information rate of 40.51%. This performance is within a 95% confidence interval between 41.6% and 64.49%, and a Kappa statistic of 0.2917 indicates a fair improvement over random chance. The model performs reasonably well in identifying COPD and HC cases. The ROC curve portrays fair model discrimination.Cross-validation with a grid search from k= 1 k=1 to k= 20 , suggests that k=19 is the best value for your kNN model, suggesting that fine-tuning the hyperparameter k can optimize the model's performance.
+
+
+# Naive Bayes
+
+```{r}
+# Define the outcome variable and predictor variables
+outcome_var <- "Diagnosis"
+# Exclude 'ID'
+predictor_vars <- setdiff(names(Exasens_cleaned), c(outcome_var, "ID"))  
+
+# Convert the Diagnosis column to a factor if not already
+Exasens_cleaned[[outcome_var]] <- as.factor(Exasens_cleaned[[outcome_var]])
+
+# Split the data into training and testing sets
+set.seed(123)  # Set a seed for reproducibility
+train_indices <- createDataPartition(Exasens_cleaned[[outcome_var]], p = 0.8, 
+                                     list = TRUE)
+train_data <- Exasens_cleaned[train_indices[[1]], ]
+test_data <- Exasens_cleaned[-train_indices[[1]], ]
+
+# Train the Naive Bayes model
+nb_model <- naiveBayes(as.factor(train_data[[outcome_var]]) ~ ., 
+                       data = train_data, na.action = na.pass)
+
+# Make predictions on the test data
+predictions <- predict(nb_model, newdata = test_data)
+
+# Evaluate the model using confusion matrix
+confusion_mtx <- confusionMatrix(predictions, test_data[[outcome_var]])
+print(confusion_mtx)
+
+# Print overall accuracy
+print(paste("Accuracy:", confusion_mtx$overall['Accuracy']))
+```
+
+```{r}
+# confusion matrix for Naive Bayes
+
+# Create the confusion matrix
+confusion_mtx <- confusionMatrix(predictions, test_data[[outcome_var]])
+
+# Convert the confusion matrix to a table for ggplot
+conf_matrix <- confusion_mtx$table
+
+# Melt the confusion matrix into a long format
+conf_matrix_long <- melt(conf_matrix, varnames = c("Prediction", "Reference"))
+
+# Now plot the confusion matrix using ggplot
+conf_matrix_plot <- ggplot(data = conf_matrix_long, aes(x = Prediction, 
+                                                        y = Reference, 
+                                                        fill = value)) +
+  geom_tile(color = "white") +  # Tiles with white borders
+  geom_text(aes(label = value), vjust = 1.5, color = "black", size = 5) +  
+  scale_fill_gradient(low = "#D0E1F9", high = "#005073") +  # Gradient color
+  labs(title = "Confusion Matrix", x = "Predicted Label", y = "True Label") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the plot
+print(conf_matrix_plot)
+```
+
+
+```{r}
+# ROC curve for Naive Bayes model
+
+predictions_prob <- predict(nb_model, newdata = test_data, type = "raw")
+positive_class_prob <- predictions_prob[, 2]
+roc_data <- roc(response = as.numeric(test_data[[outcome_var]] == 
+                                        levels(test_data[[outcome_var]])[2]),
+                predictor = positive_class_prob)
+
+# Plot ROC curve
+roc_curve_plot <- ggplot(data = data.frame(tpr = roc_data$sensitivities, 
+                                           fpr =roc_data$specificities),
+                         aes(x = 1 - fpr, y = tpr)) +
+  geom_line(color = "blue") +
+  geom_abline(linetype = "dashed") +
+  labs(title = "ROC Curve for Naive Bayes Model", x = "1 - Specificity", 
+       y = "Sensitivity") +
+  theme_minimal()
+
+print(roc_curve_plot)
+```
+
+## Findings
+
+The classification model exhibits an accuracy of 56.96%, surpassing the No Information Rate significantly (p = 0.0023), with a Kappa coefficient of 0.4505. Sensitivity varies across classes, with Asthma and Infected classes showing perfect detection rates (100%), while COPD and HC have lower sensitivities at 46.67% and 18.75% respectively.Overall, the model performs well in detecting Asthma and Infected cases. The ROC curve for the model displays good sensitivity and specificity, suggesting that it effectively discriminates between classes with the curve approaching the optimal top-left corner of the plot.
+
+
+# SVM Training
+
+```{r}
+# Define the outcome variable and predictor variables
+outcome_var <- "Diagnosis"
+predictor_vars <- setdiff(names(Exasens_cleaned), c(outcome_var, "ID"))
+
+# Split the data into training and testing sets (80% training, 20% testing)
+set.seed(1) 
+train_indices <- createDataPartition(Exasens_cleaned$Diagnosis, p = 0.8, 
+                                     list = FALSE)
+train_data <- Exasens_cleaned[train_indices, ]
+test_data <- Exasens_cleaned[-train_indices, ]
+
+# Train the SVM model
+svm_model <- svm(as.factor(train_data[[outcome_var]]) ~ ., 
+                 data = train_data[predictor_vars], kernel = "radial")
+
+# Make predictions on the test data
+predictions <- predict(svm_model, test_data[predictor_vars])
+
+test_data$Diagnosis <- factor(test_data$Diagnosis, levels = levels(predictions))
+
+# Evaluate the model using confusion matrix
+confusion_mtx <- confusionMatrix(predictions, test_data$Diagnosis)
+print(confusion_mtx)
+
+#Plotting Confusion Matrix
+conf_matrix <- matrix(c(5, 7, 12, 0,
+                        2, 18, 3, 0,
+                        0, 0, 48, 0,
+                        1, 0, 23, 0), nrow = 4, byrow = TRUE,
+                      dimnames = 
+                        list(Prediction = c("Asthma", "COPD", "HC", "Infected"),
+                                      Reference = 
+                               c("Asthma", "COPD", "HC", "Infected")))
+
+# Convert to data frame
+conf_df <- as.data.frame(as.table(conf_matrix))
+
+# Plot confusion matrix
+ggplot(conf_df, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), vjust = 1) +
+  scale_fill_gradient(low = "#D0E1F9", high = "#005073") +
+  labs(x = "Reference", y = "Prediction", title = "Confusion Matrix") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Perform K-Folds Cross-validation
+set.seed(1) 
+svm_cv <- train(as.factor(Diagnosis) ~ ., data = train_data, 
+                method = "svmRadial",
+                trControl = trainControl(method = "cv", number = 5))
+print(svm_cv)
+plot(svm_cv)
+```
+
+## Findings
+
+SVM model selected has a cost parameter C=1, the overall accuracy and Kappa statistic suggest that the model is not performing particularly well. The accuracy is close to 52%, and the confusion matrix indicates issues with correctly predicting certain classes, particularly the 'Infected' class. 
+
+
+# Density-Based Spatial Clustering of Applications with Noise (DBSCAN)
+
+```{r}
+# Check the data types of predictor variables
+str(Exasens_cleaned[predictor_vars])
+
+# Convert non-numeric variables to numeric if possible
+Exasens_cleaned[predictor_vars] <- lapply(Exasens_cleaned[predictor_vars], 
+                                          as.numeric)
+
+# Check for NA values
+sum(is.na(Exasens_cleaned[predictor_vars]))
+
+# Remove rows with NA values
+Exasens_cleaned <- na.omit(Exasens_cleaned)
+
+# Train the DBSCAN model
+dbscan_model <- dbscan(Exasens_cleaned[predictor_vars], eps = 0.5, MinPts = 5)
+
+# Plot clusters
+fviz_cluster(list(data = Exasens_cleaned[predictor_vars], 
+                  cluster = dbscan_model$cluster))
+
+# Evaluate clustering using silhouette coefficient
+silhouette <- silhouette(dbscan_model$cluster, 
+                         dist(Exasens_cleaned[predictor_vars]))
+summary(silhouette)
+```
+## Findings
+
+The silhouette analysis suggests that most of the clusters (clusters 2 to 7) are well-separated and internally cohesive, as indicated by their high average silhouette widths. However, cluster 1 has a negative average silhouette width, suggesting that the objects in this cluster may not belong well to their assigned cluster.
+
+```{r}
+# Convert Diagnosis into numeric values
+true_labels <- as.numeric(factor(Exasens_cleaned$Diagnosis, 
+                                 levels = 
+                                   c("COPD", "Asthma", "Infected", "HC")))
+
+# Compare clustering with ground truth labels
+ari <- adjustedRandIndex(dbscan_model$cluster, true_labels)
+nmi <- mutinformation(true_labels, dbscan_model$cluster) / entropy(true_labels)
+
+# Print evaluation metrics
+print(paste("Adjusted Rand Index:", ari))
+print(paste("Normalized Mutual Information:", nmi))
+```
+
+## Findings
+
+As ARI is negative and NMI is very close to 0, the DBSCAN clustering shows poor agreement with the truth labels, indicating low similarity between the clustering results and true class labels.
+
+
+# Gradient Boosting Machine (GBM)
+
+```{r}
+library(gbm)
+library(caret)
+
+# Define the outcome variable and predictor variables
+outcome_var <- "Diagnosis"
+predictor_vars <- setdiff(names(training_data), c(outcome_var, "ID"))  
+# Train the GBM model
+gbm_model <- gbm(as.formula(paste(outcome_var, "~", paste(predictor_vars, 
+                                                          collapse = " + "))),
+                 data = training_data, distribution = "multinomial", 
+                 n.trees = 100, interaction.depth = 3, shrinkage = 0.01, 
+                 verbose = FALSE)
+
+# Make predictions on the test data
+predictions <- predict(gbm_model, newdata = testing_data, n.trees = 100, 
+                       type = "response")
+predicted_classes <- apply(predictions, 1, which.max)
+
+# Convert to actual class labels
+predicted_class_labels <- levels(training_data$Diagnosis)[predicted_classes]
+predicted_classes_factor <- factor(predicted_class_labels, levels = 
+                                     levels(testing_data$Diagnosis))
+
+# Evaluate the model using confusion matrix
+conf_matrix <- confusionMatrix(predicted_classes_factor, testing_data$Diagnosis)
+print(conf_matrix)
+
+# Print overall accuracy
+cat("Accuracy:", conf_matrix$overall['Accuracy'], "\n")
+
+```
+## Findings
+
+The classification model achieved a moderate accuracy of 58.23%, significantly better than random guessing.The Kappa statistic, measuring agreement beyond chance, stands at 0.3635, suggesting moderate agreement between predicted and observed classes. Sensitivity varies widely across classes, with COPD showing the highest at 80%, followed by HC at 96.88%, and Asthma at 18.75%. Overall,  the model demonstrates reasonably good performance for identifying COPD and Asthma.
+
+
